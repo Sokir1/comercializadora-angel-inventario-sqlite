@@ -15,7 +15,13 @@
 local.properties
 
 # Configuración local y archivos de ejecución
-.idea/
 *.log
 *.jks
 *.keystore
+
+# Estado personal del editor y dispositivos locales
+/.idea/shelf/
+/.idea/deviceManager.xml
+/.idea/deploymentTargetSelector.xml
+/.idea/deploymentTargetDropDown.xml
+/.idea/gradleLocalSettings.xml
