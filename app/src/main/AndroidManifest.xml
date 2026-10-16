@@ -23,6 +23,7 @@
             </intent-filter>
         </activity>
 
+        <activity android:name=".MovimientosActivity" android:exported="false" />
         <activity android:name=".MenuActivity" android:exported="false" />
         <activity
             android:name=".InventarioActivity"

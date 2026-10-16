@@ -47,7 +47,7 @@
                 style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:hint="Buscar por nombre o categoría"
+                android:hint="Buscar por nombre o SKU"
                 app:boxStrokeColor="#D4B28C"
                 app:boxStrokeWidth="1.5dp"
                 app:hintTextColor="#D4B28C"

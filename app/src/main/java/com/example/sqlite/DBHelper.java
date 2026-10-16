@@ -18,9 +18,9 @@ import java.util.Locale;
 
 public class DBHelper extends SQLiteOpenHelper {
 
-    //  Se MANTIENE la misma base de datos (mismo archivo). Solo sube la versión 1 -> 2.
+    // Se conserva el archivo compartido; la versión 6 normaliza el inventario.
     private static final String DB_NAME = "BD_EJEMPLO.db";
-    private static final int DB_VERSION = 5;
+    private static final int DB_VERSION = 6;
 
     public static final String[] CATEGORIAS = {
             "Frutos secos", "Semillas", "Frutas deshidratadas", "Mezclas", "Otros"
@@ -28,6 +28,10 @@ public class DBHelper extends SQLiteOpenHelper {
 
     public DBHelper(Context context) {
         super(context, DB_NAME, null, DB_VERSION);
+    }
+
+    DBHelper(Context context, String testDatabase) {
+        super(context, testDatabase, null, DB_VERSION);
     }
 
     @Override
@@ -46,6 +50,7 @@ public class DBHelper extends SQLiteOpenHelper {
         sembrarCategorias(db);
         crearTablaProveedor(db);
         insertarProveedoresDeEjemplo(db);
+        migrarInventario(db);
     }
 
     //  Al subir de versión NO se borra nada: la tabla "persona" y sus datos quedan intactos
@@ -62,37 +67,15 @@ public class DBHelper extends SQLiteOpenHelper {
         }
         // v4: módulo Proveedores (soporte a compras / entradas).
         if (oldVersion < 4) {   // usa el número de versión que corresponda
-            db.execSQL("DROP TABLE IF EXISTS PROVEEDOR");
+            // No borrar proveedores existentes durante una actualización.
             crearTablaProveedor(db);
             insertarProveedoresDeEjemplo(db);
         }
-        if (oldVersion < 5) {
-            repararProveedorSeguro(db);
-        }
+        if (oldVersion < 5) repararTablaProveedor(db);
+        if (oldVersion < 6) migrarInventario(db);
     }
 
 
-    @Override
-    public void onOpen(SQLiteDatabase db) {
-        super.onOpen(db);
-        if (!db.isReadOnly()) {
-            repararProveedorSeguro(db);
-        }
-    }
-    private void repararProveedorSeguro(SQLiteDatabase db) {
-        try {
-            repararTablaProveedor(db);
-        } catch (Exception e) {
-            try {
-                db.execSQL("DROP TABLE IF EXISTS PROVEEDOR_OLD");
-                db.execSQL("DROP TABLE IF EXISTS PROVEEDOR");
-                crearTablaProveedor(db);
-                insertarProveedoresDeEjemplo(db);
-            } catch (Exception ignorado) {
-                android.util.Log.e("DBHelper", "No se pudo reparar PROVEEDOR", ignorado);
-            }
-        }
-    }
     private void repararTablaProveedor(SQLiteDatabase db) {
         Set<String> cols = new HashSet<>();
         try (Cursor c = db.rawQuery("PRAGMA table_info(PROVEEDOR)", null)) {
@@ -118,17 +101,19 @@ public class DBHelper extends SQLiteOpenHelper {
                 : cols.contains("contacto") ? "contacto" : null;
         String dir = cols.contains("direccion") ? "direccion" : null;
 
-        db.execSQL("DROP TABLE IF EXISTS PROVEEDOR_OLD");
+        if (rut == null || razon == null) {
+            throw new IllegalStateException("Esquema de proveedor desconocido; se cancela la migración para conservar los datos.");
+        }
         db.execSQL("ALTER TABLE PROVEEDOR RENAME TO PROVEEDOR_OLD");
         crearTablaProveedor(db);
-        if (rut != null && razon != null) {
-            db.execSQL("INSERT OR IGNORE INTO PROVEEDOR (rut_empresa, razon_social, numero_contacto, direccion) " +
-                    "SELECT " + rut + ", " + razon + ", " +
+        String id = cols.contains("id_proveedor") ? "id_proveedor" : cols.contains("id") ? "id" : null;
+        // Sin IGNORE: cualquier fila inválida revierte la migración, en vez de perderse.
+        db.execSQL("INSERT INTO PROVEEDOR (" + (id == null ? "" : "id_proveedor,") +
+                    "rut_empresa, razon_social, numero_contacto, direccion) " +
+                    "SELECT " + (id == null ? "" : id + ",") + rut + ", " + razon + ", " +
                     (tel != null ? "COALESCE(" + tel + ", '')" : "''") + ", " +
                     (dir != null ? dir : "NULL") + " FROM PROVEEDOR_OLD");
-        }
         db.execSQL("DROP TABLE PROVEEDOR_OLD");
-        insertarProveedoresDeEjemplo(db);   // INSERT con CONFLICT_IGNORE: no duplica
     }
 
     // ---------------------------------------------------------------- Esquema
@@ -410,11 +395,6 @@ public class DBHelper extends SQLiteOpenHelper {
             v.put("descripcion", descripcion);
             db.updateWithOnConflict("CATEGORIA", v, "id_categoria = ?",
                     new String[]{String.valueOf(idCategoria)}, SQLiteDatabase.CONFLICT_ABORT);
-            if (nombreAnterior != null && !nombreAnterior.equals(nombreCategoria)) {
-                ContentValues pv = new ContentValues();
-                pv.put("categoria", nombreCategoria);
-                db.update("PRODUCTO", pv, "categoria = ? COLLATE NOCASE", new String[]{nombreAnterior});
-            }
             db.setTransactionSuccessful();
         } finally {
             db.endTransaction();
@@ -464,79 +444,124 @@ public class DBHelper extends SQLiteOpenHelper {
                 new String[]{String.valueOf(idProveedor)}, SQLiteDatabase.CONFLICT_ABORT) > 0;
     }
 
-    // ---------------------------------------------------------------- Productos
+    // v6: stock entero en gramos; la interfaz mantiene kg, sin perder los decimales heredados.
+    private void migrarInventario(SQLiteDatabase db) {
+        db.execSQL("INSERT OR IGNORE INTO CATEGORIA(nombre_categoria,activo) SELECT DISTINCT categoria,1 FROM PRODUCTO");
+        db.execSQL("ALTER TABLE PRODUCTO RENAME TO PRODUCTO_V5");
+        db.execSQL("CREATE TABLE PRODUCTO (id_producto INTEGER PRIMARY KEY AUTOINCREMENT, " +
+                "sku_codigo TEXT NOT NULL COLLATE NOCASE UNIQUE CHECK(length(trim(sku_codigo))>0), " +
+                "nombre TEXT NOT NULL CHECK(length(trim(nombre))>0), descripcion TEXT NOT NULL DEFAULT '', " +
+                "id_categoria INTEGER NOT NULL REFERENCES CATEGORIA(id_categoria), " +
+                "stock_actual INTEGER NOT NULL DEFAULT 0 CHECK(typeof(stock_actual)='integer' AND stock_actual>=0), " +
+                "stock_minimo INTEGER NOT NULL DEFAULT 0 CHECK(typeof(stock_minimo)='integer' AND stock_minimo>=0), " +
+                "precio_kg INTEGER NOT NULL DEFAULT 0 CHECK(precio_kg>=0), activo INTEGER NOT NULL DEFAULT 1 CHECK(activo IN(0,1)))");
+        db.execSQL("INSERT INTO PRODUCTO(id_producto,sku_codigo,nombre,id_categoria,stock_actual,stock_minimo,precio_kg) " +
+                "SELECT p.id_producto, printf('LEG-%06d',p.id_producto),p.nombre,c.id_categoria," +
+                "CAST(round(p.stock*1000) AS INTEGER),CAST(round(p.stock_minimo*1000) AS INTEGER),p.precio_kg " +
+                "FROM PRODUCTO_V5 p JOIN CATEGORIA c ON c.nombre_categoria=p.categoria COLLATE NOCASE");
+        db.execSQL("DROP TABLE PRODUCTO_V5");
+        db.execSQL("CREATE INDEX idx_producto_categoria ON PRODUCTO(id_categoria)");
+        db.execSQL("CREATE TABLE MOVIMIENTO (id_movimiento INTEGER PRIMARY KEY AUTOINCREMENT, " +
+                "id_producto INTEGER NOT NULL REFERENCES PRODUCTO(id_producto), " +
+                "id_usuario INTEGER NOT NULL REFERENCES USUARIO(id_usuario), " +
+                "id_proveedor INTEGER REFERENCES PROVEEDOR(id_proveedor), " +
+                "tipo TEXT NOT NULL CHECK(tipo IN('ENTRADA','SALIDA','INICIAL')), " +
+                "cantidad INTEGER NOT NULL CHECK(typeof(cantidad)='integer' AND cantidad>0), " +
+                "fecha TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')), motivo TEXT NOT NULL, " +
+                "CHECK(tipo='ENTRADA' OR id_proveedor IS NULL))");
+        db.execSQL("CREATE INDEX idx_movimiento_producto ON MOVIMIENTO(id_producto,id_movimiento)");
+    }
+
+    private static final String SELECT_PRODUCTO = "SELECT p.id_producto,p.nombre,c.nombre_categoria," +
+            "p.stock_actual/1000.0,p.stock_minimo/1000.0,p.precio_kg,p.sku_codigo,p.descripcion,p.id_categoria,p.activo " +
+            "FROM PRODUCTO p JOIN CATEGORIA c ON c.id_categoria=p.id_categoria";
 
     public List<Producto> listarProductos(String filtro) {
         List<Producto> lista = new ArrayList<>();
-        SQLiteDatabase db = getReadableDatabase();
-        String sql = "SELECT id_producto, nombre, categoria, stock, stock_minimo, precio_kg FROM PRODUCTO";
-        String[] args = null;
-        if (filtro != null && !filtro.trim().isEmpty()) {
-            sql += " WHERE nombre LIKE ? OR categoria LIKE ?";
-            String like = "%" + filtro.trim() + "%";
-            args = new String[]{like, like};
-        }
-        sql += " ORDER BY nombre";
-        try (Cursor c = db.rawQuery(sql, args)) {
-            while (c.moveToNext()) lista.add(leerProducto(c));
+        String like = "%" + (filtro == null ? "" : filtro.trim()) + "%";
+        try (Cursor c = getReadableDatabase().rawQuery(SELECT_PRODUCTO +
+                " WHERE p.activo=1 AND (p.nombre LIKE ? OR p.sku_codigo LIKE ?) ORDER BY p.nombre",
+                new String[]{like,like})) {
+            while(c.moveToNext()) lista.add(leerProducto(c));
         }
         return lista;
     }
-
     public Producto obtenerProducto(long id) {
-        SQLiteDatabase db = getReadableDatabase();
-        try (Cursor c = db.rawQuery("SELECT id_producto, nombre, categoria, stock, stock_minimo, precio_kg " +
-                "FROM PRODUCTO WHERE id_producto = ?", new String[]{String.valueOf(id)})) {
-            return c.moveToFirst() ? leerProducto(c) : null;
+        try(Cursor c=getReadableDatabase().rawQuery(SELECT_PRODUCTO+" WHERE p.id_producto=?",new String[]{""+id})) {
+            return c.moveToFirst()?leerProducto(c):null;
         }
     }
-
     private Producto leerProducto(Cursor c) {
-        Producto p = new Producto();
-        p.idProducto = c.getLong(0);
-        p.nombre = c.getString(1);
-        p.categoria = c.getString(2);
-        p.stock = c.getDouble(3);
-        p.stockMinimo = c.getDouble(4);
-        p.precioKg = c.getInt(5);
+        Producto p=new Producto();
+        p.idProducto=c.getLong(0); p.nombre=c.getString(1); p.categoria=c.getString(2);
+        p.stock=c.getDouble(3); p.stockMinimo=c.getDouble(4); p.precioKg=c.getInt(5);
+        p.sku=c.getString(6); p.descripcion=c.getString(7); p.idCategoria=c.getLong(8); p.activo=c.getInt(9)==1;
         return p;
     }
-
-    public int contarProductos() {
-        try (Cursor c = getReadableDatabase().rawQuery("SELECT COUNT(*) FROM PRODUCTO", null)) {
-            return c.moveToFirst() ? c.getInt(0) : 0;
-        }
+    public int contarProductos() { return contar("SELECT COUNT(*) FROM PRODUCTO WHERE activo=1"); }
+    public int contarStockBajo() { return contar("SELECT COUNT(*) FROM PRODUCTO WHERE activo=1 AND stock_actual<=stock_minimo"); }
+    private int contar(String sql) {
+        try(Cursor c=getReadableDatabase().rawQuery(sql,null)) { c.moveToFirst(); return c.getInt(0); }
     }
-
-    public int contarStockBajo() {
-        try (Cursor c = getReadableDatabase().rawQuery(
-                "SELECT COUNT(*) FROM PRODUCTO WHERE stock <= stock_minimo", null)) {
-            return c.moveToFirst() ? c.getInt(0) : 0;
-        }
+    public static long gramos(double kg) {
+        if(!Double.isFinite(kg) || kg<0 || kg>1_000_000_000 || Math.abs(kg*1000-Math.rint(kg*1000))>0.0001)
+            throw new IllegalArgumentException("Use kilos positivos con hasta tres decimales (gramos).");
+        return Math.round(kg*1000);
     }
-
-    // Lanza SQLiteConstraintException si el nombre del producto ya existe
-    public void insertarProducto(Producto p) throws SQLiteConstraintException {
-        getWritableDatabase().insertOrThrow("PRODUCTO", null, valores(p));
-    }
-
-    public void actualizarProducto(Producto p) throws SQLiteConstraintException {
-        getWritableDatabase().updateWithOnConflict("PRODUCTO", valores(p), "id_producto = ?",
-                new String[]{String.valueOf(p.idProducto)}, SQLiteDatabase.CONFLICT_ABORT);
-    }
-
-    public boolean eliminarProducto(long id) {
-        return getWritableDatabase().delete("PRODUCTO", "id_producto = ?",
-                new String[]{String.valueOf(id)}) > 0;
-    }
-
     private ContentValues valores(Producto p) {
-        ContentValues v = new ContentValues();
-        v.put("nombre", p.nombre);
-        v.put("categoria", p.categoria);
-        v.put("stock", p.stock);
-        v.put("stock_minimo", p.stockMinimo);
-        v.put("precio_kg", p.precioKg);
+        if(p.sku==null || p.sku.trim().isEmpty() || p.nombre==null || p.nombre.trim().isEmpty())
+            throw new IllegalArgumentException("SKU y nombre son obligatorios.");
+        ContentValues v=new ContentValues();
+        v.put("sku_codigo",p.sku.trim()); v.put("nombre",p.nombre.trim());
+        v.put("descripcion",p.descripcion==null?"":p.descripcion.trim());
+        try(Cursor c=getReadableDatabase().rawQuery("SELECT id_categoria FROM CATEGORIA WHERE nombre_categoria=? COLLATE NOCASE AND activo=1",new String[]{p.categoria})) {
+            if(!c.moveToFirst()) throw new IllegalArgumentException("Seleccione una categoría activa.");
+            v.put("id_categoria",c.getLong(0));
+        }
+        v.put("stock_minimo",gramos(p.stockMinimo)); v.put("precio_kg",p.precioKg);
         return v;
+    }
+    public void insertarProducto(Producto p) {
+        ContentValues v=valores(p); v.put("stock_actual",gramos(p.stock));
+        p.idProducto=getWritableDatabase().insertOrThrow("PRODUCTO",null,v);
+    }
+    public void actualizarProducto(Producto p) {
+        // El stock se modifica exclusivamente mediante movimientos.
+        if(getWritableDatabase().updateWithOnConflict("PRODUCTO",valores(p),"id_producto=? AND activo=1",
+                new String[]{""+p.idProducto},SQLiteDatabase.CONFLICT_ABORT)!=1)
+            throw new IllegalArgumentException("Producto inactivo o inexistente.");
+    }
+    public boolean eliminarProducto(long id) {
+        ContentValues v=new ContentValues(); v.put("activo",0);
+        return getWritableDatabase().update("PRODUCTO",v,"id_producto=? AND activo=1",new String[]{""+id})==1;
+    }
+    public void registrarMovimiento(long producto,long usuario,Long proveedor,String tipo,double kg,String motivo) {
+        long cantidad=gramos(kg);
+        if(cantidad==0 || !("ENTRADA".equals(tipo)||"SALIDA".equals(tipo)) || motivo==null || motivo.trim().isEmpty())
+            throw new IllegalArgumentException("Indique tipo, cantidad mayor a cero y motivo.");
+        if(proveedor!=null && !"ENTRADA".equals(tipo)) throw new IllegalArgumentException("Proveedor solo en entradas.");
+        SQLiteDatabase db=getWritableDatabase(); db.beginTransaction();
+        try {
+            if(!usuarioActivo(usuario)) throw new IllegalArgumentException("Usuario inactivo.");
+            long delta="ENTRADA".equals(tipo)?cantidad:-cantidad;
+            android.database.sqlite.SQLiteStatement st=db.compileStatement(
+                    "UPDATE PRODUCTO SET stock_actual=stock_actual+? WHERE id_producto=? AND activo=1 AND stock_actual+? BETWEEN 0 AND 1000000000000");
+            try { st.bindLong(1,delta); st.bindLong(2,producto); st.bindLong(3,delta);
+                if(st.executeUpdateDelete()!=1) throw new IllegalArgumentException("Stock insuficiente, fuera de rango o producto inactivo.");
+            } finally { st.close(); }
+            ContentValues v=new ContentValues(); v.put("id_producto",producto); v.put("id_usuario",usuario);
+            if(proveedor!=null) v.put("id_proveedor",proveedor);
+            v.put("tipo",tipo); v.put("cantidad",cantidad); v.put("motivo",motivo.trim());
+            db.insertOrThrow("MOVIMIENTO",null,v); db.setTransactionSuccessful();
+        } finally { db.endTransaction(); }
+    }
+    public List<String> historialMovimientos() {
+        List<String> lista=new ArrayList<>();
+        try(Cursor c=getReadableDatabase().rawQuery("SELECT m.fecha,p.sku_codigo,p.nombre,m.tipo,m.cantidad,u.username,m.motivo,COALESCE(v.razon_social,'—') " +
+                "FROM MOVIMIENTO m JOIN PRODUCTO p ON p.id_producto=m.id_producto JOIN USUARIO u ON u.id_usuario=m.id_usuario " +
+                "LEFT JOIN PROVEEDOR v ON v.id_proveedor=m.id_proveedor ORDER BY m.id_movimiento DESC",null)) {
+            while(c.moveToNext()) lista.add(c.getString(3)+" · "+Producto.formatoKg(c.getLong(4)/1000.0)+" kg · "+c.getString(1)+"\n"+
+                    c.getString(2)+"\n"+c.getString(0)+" · "+c.getString(5)+"\n"+c.getString(6)+" · "+c.getString(7));
+        } return lista;
     }
 }

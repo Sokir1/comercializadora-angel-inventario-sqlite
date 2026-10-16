@@ -46,10 +46,12 @@
                     android:layout_height="wrap_content"
                     android:layout_marginBottom="24dp"
                     android:gravity="center"
-                    android:text="Stock en kilos y precio por kilo (CLP)"
+                    android:text="Stock en kg · precisión de 1 g · precio en CLP"
                     android:textColor="#D7CCC8"
                     android:textSize="13sp" />
 
+<com.google.android.material.textfield.TextInputLayout style="@style/Widget.Material3.TextInputLayout.OutlinedBox" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginBottom="14dp" android:hint="Código SKU único"><com.google.android.material.textfield.TextInputEditText android:id="@+id/txtSku" android:layout_width="match_parent" android:layout_height="wrap_content" android:inputType="text" android:textColor="#FFFFFF" /></com.google.android.material.textfield.TextInputLayout>
+<com.google.android.material.textfield.TextInputLayout style="@style/Widget.Material3.TextInputLayout.OutlinedBox" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginBottom="14dp" android:hint="Descripción"><com.google.android.material.textfield.TextInputEditText android:id="@+id/txtDescripcion" android:layout_width="match_parent" android:layout_height="wrap_content" android:inputType="text" android:textColor="#FFFFFF" /></com.google.android.material.textfield.TextInputLayout>
                 <!-- Nombre del producto -->
                 <com.google.android.material.textfield.TextInputLayout
                     style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
@@ -177,7 +179,7 @@
                         android:layout_height="50dp"
                         android:layout_marginStart="6dp"
                         android:layout_weight="1"
-                        android:text="Eliminar"
+                        android:text="Deshabilitar"
                         android:textColor="#FFFFFF"
                         android:textSize="15sp"
                         android:textStyle="bold"

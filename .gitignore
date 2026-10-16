@@ -13,3 +13,9 @@
 .externalNativeBuild
 .cxx
 local.properties
+
+# Configuración local y archivos de ejecución
+.idea/
+*.log
+*.jks
+*.keystore

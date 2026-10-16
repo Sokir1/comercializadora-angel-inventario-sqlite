@@ -34,6 +34,7 @@ public class MenuActivity extends ProtegidaActivity {
         // Solo el ADMIN administra usuarios y roles
         btnUsuarios.setVisibility(sesion.esAdmin() ? android.view.View.VISIBLE : android.view.View.GONE);
 
+        findViewById(R.id.btnMovimientos).setOnClickListener(v -> startActivity(new Intent(this, MovimientosActivity.class)));
         btnInventario.setOnClickListener(v -> startActivity(new Intent(this, InventarioActivity.class)));
         btnNuevo.setOnClickListener(v -> startActivity(new Intent(this, ProductoActivity.class)));
         btnCategorias.setOnClickListener(v -> startActivity(new Intent(this, CategoriasActivity.class)));

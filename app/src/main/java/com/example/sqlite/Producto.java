@@ -7,6 +7,9 @@ import java.util.Locale;
 // Todo el stock se maneja en kilos (kg) y el precio es CLP por kilo.
 public class Producto {
     public long idProducto;
+    public String sku, descripcion;
+    public long idCategoria;
+    public boolean activo;
     public String nombre;
     public String categoria;
     public double stock;        // kg disponibles
@@ -19,7 +22,7 @@ public class Producto {
 
     public static String formatoKg(double v) {
         if (v == Math.rint(v)) return String.valueOf((long) v);
-        return String.format(Locale.US, "%.2f", v);
+        return java.math.BigDecimal.valueOf(v).stripTrailingZeros().toPlainString().replace('.', ',');
     }
 
     public static String formatoPrecio(int clp) {

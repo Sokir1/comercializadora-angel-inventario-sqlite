@@ -90,7 +90,7 @@ public class InventarioActivity extends ProtegidaActivity {
 
             ((TextView) v.findViewById(R.id.itemNombre)).setText(p.nombre);
             ((TextView) v.findViewById(R.id.itemDetalle)).setText(
-                    p.categoria + "  •  " + Producto.formatoPrecio(p.precioKg) + "/kg");
+                    p.sku + " · " + p.categoria + "  •  " + Producto.formatoPrecio(p.precioKg) + "/kg");
 
             TextView stock = v.findViewById(R.id.itemStock);
             stock.setText(Producto.formatoKg(p.stock) + " kg");

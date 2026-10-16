@@ -19,7 +19,7 @@ public class ProductoActivity extends ProtegidaActivity {
 
     public static final String EXTRA_ID = "id_producto";
 
-    private TextInputEditText txtNombre, txtStock, txtStockMin, txtPrecio;
+    private TextInputEditText txtSku, txtDescripcion, txtNombre, txtStock, txtStockMin, txtPrecio;
     private MaterialAutoCompleteTextView cmbCategoria;
     private MaterialButton btnEliminar;
     private long idProducto = -1;
@@ -30,6 +30,8 @@ public class ProductoActivity extends ProtegidaActivity {
         setContentView(R.layout.activity_producto);
 
         TextView titulo = findViewById(R.id.lblTitulo);
+        txtSku = findViewById(R.id.txtSku);
+        txtDescripcion = findViewById(R.id.txtDescripcion);
         txtNombre = findViewById(R.id.txtNombre);
         cmbCategoria = findViewById(R.id.cmbCategoria);
         txtStock = findViewById(R.id.txtStock);
@@ -75,6 +77,9 @@ public class ProductoActivity extends ProtegidaActivity {
                 finish();
                 return;
             }
+            txtSku.setText(p.sku);
+            txtDescripcion.setText(p.descripcion);
+            txtStock.setEnabled(false);
             txtNombre.setText(p.nombre);
             cmbCategoria.setText(p.categoria, false);
             txtStock.setText(Producto.formatoKg(p.stock));
@@ -106,6 +111,8 @@ public class ProductoActivity extends ProtegidaActivity {
 
         Producto p = new Producto();
         try {
+            p.sku = txtSku.getText().toString().trim();
+            p.descripcion = txtDescripcion.getText().toString().trim();
             p.nombre = nombre;
             p.categoria = categoria;
             p.stock = Double.parseDouble(stockStr);
@@ -132,7 +139,7 @@ public class ProductoActivity extends ProtegidaActivity {
             }
             finish();
         } catch (SQLiteConstraintException e) {
-            Toast.makeText(this, "Ya existe un producto con ese nombre.", Toast.LENGTH_LONG).show();
+            Toast.makeText(this, "SKU duplicado o datos que no cumplen las restricciones.", Toast.LENGTH_LONG).show();
         } catch (Exception e) {
             Toast.makeText(this, "Error al guardar: " + e.getMessage(), Toast.LENGTH_LONG).show();
         } finally {
@@ -142,9 +149,9 @@ public class ProductoActivity extends ProtegidaActivity {
 
     private void confirmarEliminar() {
         new MaterialAlertDialogBuilder(this)
-                .setTitle("Eliminar producto")
-                .setMessage("¿Seguro que desea eliminar este producto del inventario?")
-                .setPositiveButton("Eliminar", (d, w) -> eliminar())
+                .setTitle("Deshabilitar producto")
+                .setMessage("Se ocultará del catálogo y se conservará su historial. ¿Continuar?")
+                .setPositiveButton("Deshabilitar", (d, w) -> eliminar())
                 .setNegativeButton("Cancelar", null)
                 .show();
     }
@@ -153,7 +160,7 @@ public class ProductoActivity extends ProtegidaActivity {
         DBHelper helper = new DBHelper(this);
         try {
             if (helper.eliminarProducto(idProducto)) {
-                Toast.makeText(this, "Producto eliminado.", Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, "Producto deshabilitado.", Toast.LENGTH_SHORT).show();
                 finish();
             } else {
                 Toast.makeText(this, "No se encontró el producto.", Toast.LENGTH_SHORT).show();
